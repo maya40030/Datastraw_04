@@ -4,6 +4,7 @@ import AppShell from './components/layout/AppShell';
 import EmployeesView from './views/EmployeesView';
 import PodsView from './views/PodsView';
 import BrandsView from './views/BrandsView';
+import RulesView from './views/RulesView';
 import { 
   Users, 
   Briefcase, 
@@ -36,7 +37,7 @@ function MasterDashboard() {
     addToast 
   } = useApp();
 
-  const [teamSubTab, setTeamSubTab] = useState('directory'); // 'directory' | 'pods'
+  const [teamSubTab, setTeamSubTab] = useState('directory');
 
   const handleResetData = async () => {
     dataService.resetToSeed();
@@ -82,6 +83,10 @@ function MasterDashboard() {
     return <BrandsView />;
   }
 
+  if (activeTab === 'rules') {
+    return <RulesView />;
+  }
+
   // Fallback / Overview Dashboard
   return (
     <div className="space-y-6">
@@ -91,7 +96,7 @@ function MasterDashboard() {
         <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20 mb-3">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            DataStraw Technical Internship Assessment • Part 3 Active
+            DataStraw Technical Internship Assessment • Part 4 Active
           </div>
           <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
             Deterministic Smart Roster Management System
@@ -115,24 +120,24 @@ function MasterDashboard() {
               <span>Reset to Seed Data</span>
             </button>
             <button
-              onClick={() => setActiveTab('brands')}
+              onClick={() => setActiveTab('rules')}
               className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-600/25 transition-all flex items-center gap-2"
             >
-              <Briefcase className="w-3.5 h-3.5" />
-              <span>Manage Brand Allocations</span>
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+              <span>Configure Operating Calendars & Leaves</span>
             </button>
             <button
-              onClick={() => setActiveTab('team')}
+              onClick={() => setActiveTab('brands')}
               className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all flex items-center gap-2"
             >
-              <Users className="w-3.5 h-3.5 text-sky-400" />
-              <span>Staff & Pod Directory</span>
+              <Briefcase className="w-3.5 h-3.5 text-sky-400" />
+              <span>Brand Allocations</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Part 3 Live Metric Cards */}
+      {/* Live Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div 
           onClick={() => setActiveTab('team')}
@@ -169,17 +174,20 @@ function MasterDashboard() {
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-slate-700 transition-all">
+        <div 
+          onClick={() => setActiveTab('rules')}
+          className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-sky-500/40 cursor-pointer transition-all"
+        >
           <div className="flex items-center justify-between text-slate-400">
-            <span className="text-xs font-medium uppercase tracking-wider font-mono">Operational Processes</span>
-            <Layers className="w-4 h-4 text-emerald-400" />
+            <span className="text-xs font-medium uppercase tracking-wider font-mono">Operating Rules</span>
+            <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-emerald-400 font-mono">{processes.length}</span>
-            <span className="text-xs text-slate-400">CS, ACC, RET, NDR</span>
+            <span className="text-2xl font-bold text-emerald-400 font-mono">Active</span>
+            <span className="text-xs text-slate-400">365-Day & Custom</span>
           </div>
           <div className="mt-2 text-[11px] text-slate-400 flex items-center gap-1">
-            <span>{assignments.length} Total Process Allocations</span>
+            <span>Configurable Brand-Process Calendars</span>
           </div>
         </div>
 
@@ -193,74 +201,26 @@ function MasterDashboard() {
             <span className="text-xs text-slate-400">PostgreSQL / Supabase</span>
           </div>
           <div className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Dynamic CRUD Enabled
+            <CheckCircle2 className="w-3.5 h-3.5" /> Calendar Engine Wired
           </div>
         </div>
       </div>
 
-      {/* Pod Structure & Pod Leads Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {pods.map((pod) => {
-          const podMembers = employees.filter((e) => e.pod_id === pod.id);
-          const podBrands = brands.filter((b) => b.pod_id === pod.id);
-          return (
-            <div key={pod.id} className="p-4 rounded-xl bg-slate-925 border border-slate-800/90 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
-                  <span className="text-xs font-bold text-white flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: pod.color }} />
-                    {pod.name}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400">{podMembers.length} staff</span>
-                </div>
-                <div className="mt-3">
-                  <div className="text-[10px] text-slate-400 uppercase font-mono">Pod Lead</div>
-                  <div className="text-xs font-semibold text-slate-200 mt-0.5 flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-sky-400" />
-                    {pod.lead_name}
-                  </div>
-                </div>
-                <div className="mt-2">
-                  <div className="text-[10px] text-slate-400 uppercase font-mono">Assigned Brands ({podBrands.length})</div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {podBrands.map((b) => (
-                      <span
-                        key={b.id}
-                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                          b.is_single_resource 
-                            ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' 
-                            : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-bold'
-                        }`}
-                      >
-                        {b.code} {b.is_single_resource ? '(1:1)' : '(Multi)'}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 pt-2 border-t border-slate-800 text-[10px] text-slate-400 leading-snug">
-                {pod.description}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Part 3 Progress Summary */}
+      {/* Part 4 Progress Summary */}
       <div className="p-4 rounded-xl bg-slate-925 border border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center font-bold font-mono">
-            P3
+            P4
           </div>
           <div>
-            <div className="text-xs font-semibold text-white">Part 3 Master Operational Entity Management CRUD Complete</div>
+            <div className="text-xs font-semibold text-white">Part 4 Rules, Calendars & Availability Configurator Complete</div>
             <div className="text-[11px] text-slate-400">
-              Interactive employee directory, pod governance, and brand allocation editor fully operational without code modification.
+              365-day operations, public holidays, planned leaves, and compensatory offs fully modeled and configurable.
             </div>
           </div>
         </div>
         <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-full">
-          Part 3 Verified
+          Part 4 Verified
         </span>
       </div>
     </div>
