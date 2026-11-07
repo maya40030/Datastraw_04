@@ -23,11 +23,12 @@ export default function Header() {
     selectedYear, 
     setSelectedYear,
     metrics,
-    addToast
+    generateRoster,
+    isGenerating
   } = useApp();
 
   const handleGenerateClick = () => {
-    addToast('Deterministic Roster Engine pipeline queued for selected period.', 'info');
+    generateRoster(true);
   };
 
   const getStatusBadge = () => {
@@ -159,13 +160,14 @@ export default function Header() {
         {/* Status Pill */}
         {getStatusBadge()}
 
-        {/* Generate / Validate Action Button */}
+        {/* Generate Action Button */}
         <button
           onClick={handleGenerateClick}
-          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-600/20 transition-all active:scale-95"
+          disabled={isGenerating}
+          className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-sky-600/20 transition-all active:scale-95"
         >
-          <RotateCw className="w-3.5 h-3.5" />
-          <span>Generate Roster</span>
+          <RotateCw className={`w-3.5 h-3.5 ${isGenerating ? 'animate-spin' : ''}`} />
+          <span>{isGenerating ? 'Generating...' : 'Generate Roster'}</span>
         </button>
       </div>
     </header>

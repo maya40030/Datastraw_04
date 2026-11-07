@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { dataService } from '../services/dataService';
+import { rosterService } from '../services/rosterService';
 
 const AppContext = createContext();
 
@@ -29,6 +30,12 @@ export function AppProvider({ children }) {
   const [leaves, setLeaves] = useState([]);
   const [compOffs, setCompOffs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Roster & Scheduling Engine State
+  const [currentRoster, setCurrentRoster] = useState(null);
+  const [conflicts, setConflicts] = useState([]);
+  const [softWarnings, setSoftWarnings] = useState([]);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   // Operational metrics
   const [metrics, setMetrics] = useState({
@@ -114,9 +121,40 @@ export function AppProvider({ children }) {
     }
   }, [addToast]);
 
+  // Generate or Load Roster for current month/year
+  const generateRoster = useCallback(async (force = true) => {
+    try {
+      setIsGenerating(true);
+      const roster = await rosterService.getOrGenerateRoster(selectedMonth, selectedYear, force);
+      setCurrentRoster(roster);
+      setConflicts(roster.conflicts || []);
+      setSoftWarnings(roster.softWarnings || []);
+
+      setMetrics((prev) => ({
+        ...prev,
+        coverageSlaRate: roster.coverage_score ?? 98.2,
+        activeConflictsCount: (roster.conflicts || []).length,
+        rosterStatus: roster.status === 'published' ? 'Published' : (roster.conflicts || []).length === 0 ? 'Validated' : 'Draft'
+      }));
+
+      addToast(
+        `Generated deterministic roster for ${selectedMonth + 1}/${selectedYear}. Coverage: ${roster.coverage_score}%.`,
+        (roster.conflicts || []).length === 0 ? 'success' : 'warning'
+      );
+    } catch (err) {
+      console.error('Failed to generate roster', err);
+      addToast('Failed to generate roster', 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [selectedMonth, selectedYear, addToast]);
+
   useEffect(() => {
-    refreshData();
-  }, [refreshData]);
+    refreshData().then(() => {
+      // Auto-load or generate initial roster
+      generateRoster(false);
+    });
+  }, [refreshData, generateRoster]);
 
   return (
     <AppContext.Provider
@@ -153,7 +191,14 @@ export function AppProvider({ children }) {
         leaves,
         compOffs,
         isLoading,
-        refreshData
+        refreshData,
+        // Roster & Engine
+        currentRoster,
+        setCurrentRoster,
+        conflicts,
+        softWarnings,
+        isGenerating,
+        generateRoster
       }}
     >
       {children}
