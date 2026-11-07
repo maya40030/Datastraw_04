@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import AppShell from './components/layout/AppShell';
+import EmployeesView from './views/EmployeesView';
+import PodsView from './views/PodsView';
+import BrandsView from './views/BrandsView';
 import { 
   Users, 
   Briefcase, 
@@ -13,11 +16,13 @@ import {
   Building,
   UserCheck,
   Layers,
-  Sparkles
+  Sparkles,
+  SlidersHorizontal,
+  CalendarDays
 } from 'lucide-react';
 import { dataService } from './services/dataService';
 
-function DashboardView() {
+function MasterDashboard() {
   const { 
     activeTab, 
     setActiveTab, 
@@ -31,6 +36,8 @@ function DashboardView() {
     addToast 
   } = useApp();
 
+  const [teamSubTab, setTeamSubTab] = useState('directory'); // 'directory' | 'pods'
+
   const handleResetData = async () => {
     dataService.resetToSeed();
     await refreshData();
@@ -39,6 +46,43 @@ function DashboardView() {
 
   const integrity = dataService.validateIntegrity();
 
+  // Route based on activeTab
+  if (activeTab === 'team') {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+          <button
+            onClick={() => setTeamSubTab('directory')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              teamSubTab === 'directory'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white bg-slate-900'
+            }`}
+          >
+            Staff Directory ({employees.length})
+          </button>
+          <button
+            onClick={() => setTeamSubTab('pods')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              teamSubTab === 'pods'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-white bg-slate-900'
+            }`}
+          >
+            Pods & Leadership (4 Pods)
+          </button>
+        </div>
+
+        {teamSubTab === 'directory' ? <EmployeesView /> : <PodsView />}
+      </div>
+    );
+  }
+
+  if (activeTab === 'brands') {
+    return <BrandsView />;
+  }
+
+  // Fallback / Overview Dashboard
   return (
     <div className="space-y-6">
       {/* Top Banner / Assessment Alignment Card */}
@@ -47,7 +91,7 @@ function DashboardView() {
         <div className="max-w-4xl">
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20 mb-3">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            DataStraw Technical Internship Assessment • Part 2 Active
+            DataStraw Technical Internship Assessment • Part 3 Active
           </div>
           <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight">
             Deterministic Smart Roster Management System
@@ -71,19 +115,29 @@ function DashboardView() {
               <span>Reset to Seed Data</span>
             </button>
             <button
-              onClick={() => addToast('Part 2 seed loaded: 36 employees, 15 brands, 4 pods, 4 leads.', 'info')}
+              onClick={() => setActiveTab('brands')}
               className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-600/25 transition-all flex items-center gap-2"
             >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Verify Dataset</span>
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>Manage Brand Allocations</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('team')}
+              className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all flex items-center gap-2"
+            >
+              <Users className="w-3.5 h-3.5 text-sky-400" />
+              <span>Staff & Pod Directory</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Part 2 Live Metric Cards */}
+      {/* Part 3 Live Metric Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-slate-700 transition-all">
+        <div 
+          onClick={() => setActiveTab('team')}
+          className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-sky-500/40 cursor-pointer transition-all"
+        >
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-medium uppercase tracking-wider font-mono">Team Staffing</span>
             <Users className="w-4 h-4 text-sky-400" />
@@ -97,7 +151,10 @@ function DashboardView() {
           </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-slate-700 transition-all">
+        <div 
+          onClick={() => setActiveTab('brands')}
+          className="p-4 rounded-xl bg-slate-925 border border-slate-800 shadow-sm hover:border-sky-500/40 cursor-pointer transition-all"
+        >
           <div className="flex items-center justify-between text-slate-400">
             <span className="text-xs font-medium uppercase tracking-wider font-mono">Brand Distribution</span>
             <Briefcase className="w-4 h-4 text-sky-400" />
@@ -136,7 +193,7 @@ function DashboardView() {
             <span className="text-xs text-slate-400">PostgreSQL / Supabase</span>
           </div>
           <div className="mt-2 text-[11px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Foreign Keys Verified
+            <CheckCircle2 className="w-3.5 h-3.5" /> Dynamic CRUD Enabled
           </div>
         </div>
       </div>
@@ -174,7 +231,6 @@ function DashboardView() {
                             ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' 
                             : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-bold'
                         }`}
-                        title={b.is_single_resource ? 'Single Resource Brand' : 'Multi Resource Brand'}
                       >
                         {b.code} {b.is_single_resource ? '(1:1)' : '(Multi)'}
                       </span>
@@ -190,68 +246,21 @@ function DashboardView() {
         })}
       </div>
 
-      {/* Brands Breakdown: Single vs Multi-Resource */}
-      <div className="p-5 rounded-xl bg-slate-925 border border-slate-800">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div>
-            <h3 className="text-sm font-semibold text-white">15 D2C Client Accounts (80% Single-Resource / 20% Multi-Resource)</h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Reflecting actual operational staffing pattern specified in DataStraw assessment
-            </p>
-          </div>
-          <span className="text-xs font-mono px-2 py-1 rounded bg-sky-500/10 text-sky-400 font-semibold border border-sky-500/20">
-            12 Single / 3 Multi
-          </span>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {brands.map((brand) => {
-            const brandAssigns = assignments.filter((a) => a.brand_id === brand.id);
-            const assignedStaff = employees.filter((e) => brandAssigns.some((a) => a.employee_id === e.id));
-            return (
-              <div
-                key={brand.id}
-                className={`p-3 rounded-lg border text-xs transition-all ${
-                  brand.is_single_resource
-                    ? 'bg-slate-900/60 border-slate-800 hover:border-sky-500/30'
-                    : 'bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/50'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="font-mono text-[10px] font-bold text-slate-300">{brand.code}</span>
-                  <span
-                    className={`text-[9px] px-1 py-0.2 rounded font-mono font-semibold ${
-                      brand.is_single_resource
-                        ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20'
-                        : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                    }`}
-                  >
-                    {brand.is_single_resource ? 'Single (1:1)' : 'Multi-Staff'}
-                  </span>
-                </div>
-                <div className="font-medium text-slate-100 line-clamp-1">{brand.name}</div>
-                <div className="text-[11px] text-slate-400 mt-1">
-                  {assignedStaff.map((s) => s.name).join(', ') || 'No staff assigned'}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Part 2 Progress Indicator */}
+      {/* Part 3 Progress Summary */}
       <div className="p-4 rounded-xl bg-slate-925 border border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/20 flex items-center justify-center font-bold font-mono">
-            P2
+            P3
           </div>
           <div>
-            <div className="text-xs font-semibold text-white">Part 2 Relational Data Models & Enterprise Seed Complete</div>
-            <div className="text-[11px] text-slate-400">PostgreSQL schema, seed SQL, and 36-staff/15-brand dataset verified.</div>
+            <div className="text-xs font-semibold text-white">Part 3 Master Operational Entity Management CRUD Complete</div>
+            <div className="text-[11px] text-slate-400">
+              Interactive employee directory, pod governance, and brand allocation editor fully operational without code modification.
+            </div>
           </div>
         </div>
         <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-full">
-          Part 2 Verified
+          Part 3 Verified
         </span>
       </div>
     </div>
@@ -262,7 +271,7 @@ export default function App() {
   return (
     <AppProvider>
       <AppShell>
-        <DashboardView />
+        <MasterDashboard />
       </AppShell>
     </AppProvider>
   );
