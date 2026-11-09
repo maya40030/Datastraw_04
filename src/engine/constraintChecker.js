@@ -3,7 +3,7 @@
  * Evaluates any roster state against Hard Constraints and Soft Preferences.
  */
 
-import { evaluateOperatingRequirement } from '../services/calendarService';
+import { evaluateOperatingRequirement } from '../services/calendarService.js';
 
 /**
  * Validates a monthly roster against all mandatory and preference rules.
@@ -112,12 +112,14 @@ export function evaluateRosterConstraints(
         // Count how many staff members are scheduled to work on this brand & process on this date
         const assignedWorkers = employees.filter((emp) => {
           const shift = roster.assignments?.[emp.id]?.[dateStr];
-          return (
-            shift &&
-            shift.shift_status === 'working' &&
-            shift.brand_id === rule.brand_id &&
-            shift.process_id === rule.process_id
-          );
+          if (!shift || shift.shift_status !== 'working' || shift.brand_id !== rule.brand_id) {
+            return false;
+          }
+          // For single-resource brands, the dedicated specialist (or deployed backup) covers all brand processes
+          if (brand.is_single_resource) {
+            return true;
+          }
+          return shift.process_id === rule.process_id;
         });
 
         fulfilledSlots += Math.min(assignedWorkers.length, requirement.requiredHeadcount);

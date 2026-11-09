@@ -7,8 +7,8 @@
  * - Non-Silent Failure Guarantee: Unfulfillable demand produces explicit conflict records
  */
 
-import { getDaysInMonthArray, evaluateOperatingRequirement, getPublicHolidayForDate } from '../services/calendarService';
-import { evaluateRosterConstraints } from './constraintChecker';
+import { getDaysInMonthArray, evaluateOperatingRequirement, getPublicHolidayForDate } from '../services/calendarService.js';
+import { evaluateRosterConstraints } from './constraintChecker.js';
 
 /**
  * Generates a monthly roster for all employees across all brand-process constraints.
@@ -91,27 +91,56 @@ export function generateDeterministicRoster({
     });
   });
 
-  // Track operational shifts assigned per employee to balance workload
+  // Track consecutive working days and shift counts per employee
+  const consecutiveDays = {};
+  const weeklyOffsCount = {};
   const employeeShiftCounts = {};
+
   employees.forEach((e) => {
+    consecutiveDays[e.id] = 0;
+    weeklyOffsCount[e.id] = 0;
     employeeShiftCounts[e.id] = 0;
   });
 
-  // --------------------------------------------------------------------------
-  // STEP 2: SINGLE-RESOURCE BRANDS MANDATORY SCHEDULING (80% OF BRANDS)
-  // --------------------------------------------------------------------------
-  // For single-resource brands, there is exactly 1 dedicated employee.
-  // Their coverage requirement must be scheduled first as a non-negotiable hard constraint.
   const singleResourceBrands = brands.filter((b) => b.is_single_resource);
+  const multiResourceBrands = brands.filter((b) => !b.is_single_resource);
 
+  // --------------------------------------------------------------------------
+  // SYNCHRONIZED DAY-BY-DAY SCHEDULING PIPELINE
+  // --------------------------------------------------------------------------
   dates.forEach((dateStr) => {
+    const dateObj = new Date(dateStr + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+
+    // A. Pre-check: Anyone already on approved leave or comp-off resets consecutive days
+    employees.forEach((emp) => {
+      const slot = matrix[emp.id][dateStr];
+      if (slot && (slot.shift_status === 'planned_leave' || slot.shift_status === 'comp_off')) {
+        consecutiveDays[emp.id] = 0;
+      }
+    });
+
+    // B. Fatigue Pre-Enforcement: Employees who have worked 6 consecutive days MUST take rest
+    employees.forEach((emp) => {
+      if (consecutiveDays[emp.id] >= 6 && matrix[emp.id][dateStr] === null) {
+        matrix[emp.id][dateStr] = {
+          shift_status: 'weekly_off',
+          brand_id: null,
+          process_id: null,
+          notes: 'Mandatory Rest Day (Labor Law: Max 6 consecutive working days)'
+        };
+        weeklyOffsCount[emp.id]++;
+        consecutiveDays[emp.id] = 0;
+      }
+    });
+
+    // C. Step 2: Single-Resource Brands Scheduling
     singleResourceBrands.forEach((brand) => {
       const brandRules = brandProcessRules.filter((r) => r.brand_id === brand.id);
       const brandAssigns = assignments.filter((a) => a.brand_id === brand.id);
       const dedicatedStaff = employees.find((e) => brandAssigns.some((a) => a.employee_id === e.id));
 
       if (!dedicatedStaff) {
-        // Operational gap: Single resource brand has no assigned specialist!
         explicitConflicts.push({
           id: `conf-no-staff-${brand.id}-${dateStr}`,
           roster_id: rosterId,
@@ -127,183 +156,231 @@ export function generateDeterministicRoster({
         return;
       }
 
-      // Check each process required for this single-resource brand on this date
-      brandRules.forEach((rule) => {
+      const operatingRules = brandRules.filter((rule) => {
         const req = evaluateOperatingRequirement(dateStr, rule, publicHolidays);
-
-        if (req.isOperating && req.requiredHeadcount > 0) {
-          const currentSlot = matrix[dedicatedStaff.id][dateStr];
-
-          if (currentSlot !== null) {
-            // Specialist is already blocked (on planned leave, comp-off, or assigned)
-            explicitConflicts.push({
-              id: `conf-single-blackout-${brand.id}-${rule.process_id}-${dateStr}`,
-              roster_id: rosterId,
-              date: dateStr,
-              severity: 'critical',
-              conflict_type: 'single_resource_blackout',
-              brand_id: brand.id,
-              brand_code: brand.code,
-              brand_name: brand.name,
-              process_id: rule.process_id,
-              employee_id: dedicatedStaff.id,
-              employee_name: dedicatedStaff.name,
-              message: `Single-Resource Blackout: ${brand.name} requires ${rule.process_id} coverage on ${dateStr}, but dedicated specialist ${dedicatedStaff.name} is on ${currentSlot.shift_status.replace(/_/g, ' ')}.`,
-              suggested_action: `Deploy a cross-trained backup from ${dedicatedStaff.pod_id} to maintain 100% SLA.`
-            });
-          } else {
-            // Assign primary single-resource shift
-            matrix[dedicatedStaff.id][dateStr] = {
-              shift_status: 'working',
-              brand_id: brand.id,
-              brand_code: brand.code,
-              brand_name: brand.name,
-              process_id: rule.process_id,
-              is_single_resource: true,
-              is_backup_fill: false,
-              notes: `Dedicated account coverage (${req.reason})`
-            };
-            employeeShiftCounts[dedicatedStaff.id]++;
-          }
-        }
+        return req.isOperating && req.requiredHeadcount > 0;
       });
+
+      if (operatingRules.length === 0) return; // Brand does not operate today
+
+      const primaryProcess = operatingRules[0].process_id;
+      const processSummary = operatingRules.map((r) => r.process_id).join(', ');
+      const currentSlot = matrix[dedicatedStaff.id][dateStr];
+
+      // If dedicated specialist is on approved leave / comp-off
+      if (currentSlot && (currentSlot.shift_status === 'planned_leave' || currentSlot.shift_status === 'comp_off')) {
+        explicitConflicts.push({
+          id: `conf-single-blackout-${brand.id}-${dateStr}`,
+          roster_id: rosterId,
+          date: dateStr,
+          severity: 'critical',
+          conflict_type: 'single_resource_blackout',
+          brand_id: brand.id,
+          brand_code: brand.code,
+          brand_name: brand.name,
+          process_id: primaryProcess,
+          employee_id: dedicatedStaff.id,
+          employee_name: dedicatedStaff.name,
+          message: `Single-Resource Blackout: ${brand.name} operates on ${dateStr}, but dedicated specialist ${dedicatedStaff.name} is on ${currentSlot.shift_status.replace(/_/g, ' ')}.`,
+          suggested_action: `Deploy a cross-trained backup from ${dedicatedStaff.pod_id} to maintain 100% SLA.`
+        });
+        return;
+      }
+
+      // Check if specialist should take weekly off today (preferred day or fatigue)
+      const isPreferredOff = dedicatedStaff.weekly_off_preference === dayOfWeek;
+      const mustTakeRest = consecutiveDays[dedicatedStaff.id] >= 6;
+
+      if ((isPreferredOff || mustTakeRest) && (currentSlot === null || currentSlot.shift_status === 'weekly_off')) {
+        // Find qualified pod backup who is available today
+        // Prefer one whose preferred weekly off day is not today, or any available pod peer
+        let podBackup = employees.find((cand) =>
+          cand.pod_id === dedicatedStaff.pod_id &&
+          cand.id !== dedicatedStaff.id &&
+          cand.skills.includes(primaryProcess) &&
+          matrix[cand.id][dateStr] === null &&
+          consecutiveDays[cand.id] < 6 &&
+          cand.weekly_off_preference !== dayOfWeek
+        );
+
+        if (!podBackup) {
+          podBackup = employees.find((cand) =>
+            cand.pod_id === dedicatedStaff.pod_id &&
+            cand.id !== dedicatedStaff.id &&
+            cand.skills.includes(primaryProcess) &&
+            matrix[cand.id][dateStr] === null &&
+            consecutiveDays[cand.id] < 6
+          );
+        }
+
+        if (podBackup) {
+          matrix[dedicatedStaff.id][dateStr] = {
+            shift_status: 'weekly_off',
+            brand_id: null,
+            process_id: null,
+            notes: `Designated Weekly Off (Preferred: ${dateObj.toLocaleDateString('en-US', { weekday: 'long' })})`
+          };
+          weeklyOffsCount[dedicatedStaff.id]++;
+          consecutiveDays[dedicatedStaff.id] = 0;
+
+          matrix[podBackup.id][dateStr] = {
+            shift_status: 'working',
+            brand_id: brand.id,
+            brand_code: brand.code,
+            brand_name: brand.name,
+            process_id: primaryProcess,
+            is_single_resource: true,
+            is_backup_fill: true,
+            notes: `Cross-trained backup covering for ${dedicatedStaff.name} (${processSummary})`
+          };
+          employeeShiftCounts[podBackup.id]++;
+          consecutiveDays[podBackup.id]++;
+          return;
+        }
+      }
+
+      // If available and not at fatigue limit, assign dedicated specialist
+      if (matrix[dedicatedStaff.id][dateStr] === null) {
+        matrix[dedicatedStaff.id][dateStr] = {
+          shift_status: 'working',
+          brand_id: brand.id,
+          brand_code: brand.code,
+          brand_name: brand.name,
+          process_id: primaryProcess,
+          is_single_resource: true,
+          is_backup_fill: false,
+          notes: `Dedicated account coverage (${processSummary})`
+        };
+        employeeShiftCounts[dedicatedStaff.id]++;
+        consecutiveDays[dedicatedStaff.id]++;
+      }
     });
-  });
 
-  // --------------------------------------------------------------------------
-  // STEP 3: MULTI-RESOURCE BRANDS SCHEDULING & CAPACITY OPTIMIZATION (20%)
-  // --------------------------------------------------------------------------
-  // For multi-resource brands, multiple staff are available.
-  // We allocate eligible certified staff while balancing shifts and respecting leaves.
-  const multiResourceBrands = brands.filter((b) => !b.is_single_resource);
-
-  dates.forEach((dateStr) => {
+    // D. Step 3: Multi-Resource Brands Scheduling
     multiResourceBrands.forEach((brand) => {
       const brandRules = brandProcessRules.filter((r) => r.brand_id === brand.id);
 
       brandRules.forEach((rule) => {
         const req = evaluateOperatingRequirement(dateStr, rule, publicHolidays);
+        if (!req.isOperating || req.requiredHeadcount <= 0) return;
 
-        if (req.isOperating && req.requiredHeadcount > 0) {
-          // Find candidates assigned to this brand who are qualified for this process
-          const brandAssigns = assignments.filter(
-            (a) => a.brand_id === brand.id && a.process_id === rule.process_id
+        // Primary candidates assigned to this brand & process
+        const brandAssigns = assignments.filter(
+          (a) => a.brand_id === brand.id && a.process_id === rule.process_id
+        );
+        let candidates = employees.filter((emp) =>
+          brandAssigns.some((a) => a.employee_id === emp.id) &&
+          matrix[emp.id][dateStr] === null &&
+          consecutiveDays[emp.id] < 6
+        );
+
+        // If primary candidates insufficient, check other brand assignees with this skill
+        if (candidates.length < req.requiredHeadcount) {
+          const crossSkillAssignees = employees.filter((emp) =>
+            assignments.some((a) => a.brand_id === brand.id && a.employee_id === emp.id) &&
+            emp.skills.includes(rule.process_id) &&
+            matrix[emp.id][dateStr] === null &&
+            consecutiveDays[emp.id] < 6 &&
+            !candidates.some((c) => c.id === emp.id)
           );
-          const candidateStaff = employees.filter((emp) =>
-            brandAssigns.some((a) => a.employee_id === emp.id)
+          candidates = [...candidates, ...crossSkillAssignees];
+        }
+
+        // If still insufficient, draw from same pod members with the certified skill
+        if (candidates.length < req.requiredHeadcount) {
+          const podHelpers = employees.filter((emp) =>
+            emp.pod_id === brand.pod_id &&
+            emp.skills.includes(rule.process_id) &&
+            matrix[emp.id][dateStr] === null &&
+            consecutiveDays[emp.id] < 6 &&
+            !candidates.some((c) => c.id === emp.id)
           );
+          candidates = [...candidates, ...podHelpers];
+        }
 
-          // Filter candidates who are NOT blocked on this date
-          const availableCandidates = candidateStaff.filter(
-            (emp) => matrix[emp.id][dateStr] === null
-          );
+        // Prioritize candidates:
+        // 1. Not preferring off today
+        // 2. Lowest consecutive days worked
+        // 3. Lowest monthly shift count
+        candidates.sort((a, b) => {
+          const aPrefOff = a.weekly_off_preference === dayOfWeek ? 1 : 0;
+          const bPrefOff = b.weekly_off_preference === dayOfWeek ? 1 : 0;
+          if (aPrefOff !== bPrefOff) return aPrefOff - bPrefOff;
+          if (consecutiveDays[a.id] !== consecutiveDays[b.id]) return consecutiveDays[a.id] - consecutiveDays[b.id];
+          return (employeeShiftCounts[a.id] || 0) - (employeeShiftCounts[b.id] || 0);
+        });
 
-          // Sort candidates:
-          // 1. Not preferring off on this day of week
-          // 2. Lowest total shifts worked so far (uniform shift parity)
-          const dateObj = new Date(dateStr + 'T00:00:00');
-          const dayOfWeek = dateObj.getDay();
+        const slotsToFill = req.requiredHeadcount;
+        let filledCount = 0;
 
-          availableCandidates.sort((a, b) => {
-            const aPrefersOff = a.weekly_off_preference === dayOfWeek ? 1 : 0;
-            const bPrefersOff = b.weekly_off_preference === dayOfWeek ? 1 : 0;
-            if (aPrefersOff !== bPrefersOff) return aPrefersOff - bPrefersOff;
-            return (employeeShiftCounts[a.id] || 0) - (employeeShiftCounts[b.id] || 0);
+        for (let i = 0; i < slotsToFill && i < candidates.length; i++) {
+          const staff = candidates[i];
+          const isPrimary = brandAssigns.some((a) => a.employee_id === staff.id);
+
+          matrix[staff.id][dateStr] = {
+            shift_status: 'working',
+            brand_id: brand.id,
+            brand_code: brand.code,
+            brand_name: brand.name,
+            process_id: rule.process_id,
+            is_single_resource: false,
+            is_backup_fill: !isPrimary,
+            notes: isPrimary ? `Multi-resource coverage (${req.reason})` : `Cross-trained pod support (${rule.process_id})`
+          };
+          employeeShiftCounts[staff.id]++;
+          consecutiveDays[staff.id]++;
+          filledCount++;
+        }
+
+        if (filledCount < slotsToFill) {
+          explicitConflicts.push({
+            id: `conf-understaffed-${brand.id}-${rule.process_id}-${dateStr}`,
+            roster_id: rosterId,
+            date: dateStr,
+            severity: 'critical',
+            conflict_type: 'understaffed_coverage',
+            brand_id: brand.id,
+            brand_code: brand.code,
+            brand_name: brand.name,
+            process_id: rule.process_id,
+            required: slotsToFill,
+            actual: filledCount,
+            message: `Coverage Deficit: Multi-resource brand ${brand.name} requires ${slotsToFill} staff for ${rule.process_id} on ${dateStr}, but only ${filledCount} available.`,
+            suggested_action: 'Assign an additional team member or approve temporary cross-pod backup.'
           });
-
-          const slotsToFill = req.requiredHeadcount;
-          let filledCount = 0;
-
-          for (let i = 0; i < slotsToFill && i < availableCandidates.length; i++) {
-            const selectedStaff = availableCandidates[i];
-            matrix[selectedStaff.id][dateStr] = {
-              shift_status: 'working',
-              brand_id: brand.id,
-              brand_code: brand.code,
-              brand_name: brand.name,
-              process_id: rule.process_id,
-              is_single_resource: false,
-              is_backup_fill: false,
-              notes: `Multi-resource coverage (${req.reason})`
-            };
-            employeeShiftCounts[selectedStaff.id]++;
-            filledCount++;
-          }
-
-          // If available candidates < required headcount, log explicit understaffing conflict
-          if (filledCount < slotsToFill) {
-            explicitConflicts.push({
-              id: `conf-understaffed-${brand.id}-${rule.process_id}-${dateStr}`,
-              roster_id: rosterId,
-              date: dateStr,
-              severity: 'critical',
-              conflict_type: 'understaffed_coverage',
-              brand_id: brand.id,
-              brand_code: brand.code,
-              brand_name: brand.name,
-              process_id: rule.process_id,
-              required: slotsToFill,
-              actual: filledCount,
-              message: `Coverage Deficit: Multi-resource brand ${brand.name} requires ${slotsToFill} staff for ${rule.process_id} on ${dateStr}, but only ${filledCount} available.`,
-              suggested_action: 'Assign an additional team member or approve temporary cross-pod backup.'
-            });
-          }
         }
       });
     });
-  });
 
-  // --------------------------------------------------------------------------
-  // STEP 4: WEEKLY OFF ALLOCATION & PREFERENCE SATISFACTION
-  // --------------------------------------------------------------------------
-  // For any remaining unassigned slots:
-  // - Respect employee's preferred weekly off day
-  // - Ensure minimum 1 weekly off every 7 days (burnout prevention)
-  // - Honor employee's monthly weekly off quota (e.g. 4 offs/month)
-  employees.forEach((emp) => {
-    let consecutiveWorkDays = 0;
-    let weeklyOffsCount = 0;
+    // E. Step 4: Standby Capacity & Weekly Off Allocation for Remaining Staff
+    employees.forEach((emp) => {
+      if (matrix[emp.id][dateStr] !== null) return; // Already assigned
 
-    dates.forEach((dateStr) => {
-      const currentSlot = matrix[emp.id][dateStr];
-      const dateObj = new Date(dateStr + 'T00:00:00');
-      const dayOfWeek = dateObj.getDay();
-
-      if (currentSlot && currentSlot.shift_status === 'working') {
-        consecutiveWorkDays++;
-        return;
-      }
-
-      if (currentSlot && (currentSlot.shift_status === 'planned_leave' || currentSlot.shift_status === 'comp_off')) {
-        consecutiveWorkDays = 0;
-        return;
-      }
-
-      // Slot is currently unassigned (null)
-      const holiday = getPublicHolidayForDate(dateStr, publicHolidays);
       const isPreferredOffDay = emp.weekly_off_preference === dayOfWeek;
-      const mustTakeOff = consecutiveWorkDays >= 6 || isPreferredOffDay || weeklyOffsCount < emp.weekly_offs_quota;
+      const mustTakeRest = consecutiveDays[emp.id] >= 6;
+      const shouldTakeWeeklyOff = mustTakeRest || (isPreferredOffDay && weeklyOffsCount[emp.id] < emp.weekly_offs_quota);
 
-      if (mustTakeOff) {
+      if (shouldTakeWeeklyOff) {
         matrix[emp.id][dateStr] = {
           shift_status: 'weekly_off',
           brand_id: null,
           process_id: null,
           notes: isPreferredOffDay
             ? `Designated Weekly Off (Preferred: ${dateObj.toLocaleDateString('en-US', { weekday: 'long' })})`
-            : 'Scheduled Weekly Off'
+            : 'Scheduled Rest Day (Fatigue Prevention)'
         };
-        weeklyOffsCount++;
-        consecutiveWorkDays = 0;
+        weeklyOffsCount[emp.id]++;
+        consecutiveDays[emp.id] = 0;
       } else {
-        // Available for floating / cross-brand standby or secondary tasks
+        // Floating / standby operations
         matrix[emp.id][dateStr] = {
           shift_status: 'working',
           brand_id: null,
           process_id: null,
           notes: 'Standby / Floating Pod Operations'
         };
-        consecutiveWorkDays++;
+        consecutiveDays[emp.id]++;
+        employeeShiftCounts[emp.id]++;
       }
     });
   });
@@ -332,11 +409,11 @@ export function generateDeterministicRoster({
 
   // Merge any explicit scheduler conflicts with constraint checker findings
   const allConflicts = [...explicitConflicts, ...validation.hardViolations];
-  // Deduplicate by unique message/date/brand
+  // Deduplicate by unique date/brand/process
   const uniqueConflicts = [];
   const seenKeys = new Set();
   for (const c of allConflicts) {
-    const key = `${c.date}_${c.brand_id || ''}_${c.employee_id || ''}_${c.conflict_type || c.type}`;
+    const key = `${c.date}_${c.brand_id || ''}_${c.process_id || ''}`;
     if (!seenKeys.has(key)) {
       seenKeys.add(key);
       uniqueConflicts.push(c);
